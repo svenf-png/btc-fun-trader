@@ -1,0 +1,87 @@
+import { describe, expect, it } from 'vitest';
+import {
+  START_CAPITAL,
+  applyTrade,
+  compactEquity,
+  initialState,
+  parseState,
+  resetAccount,
+  sideSummary,
+  summarize,
+} from '../src/store';
+import { closePosition, openPosition } from '../src/trading';
+
+const trade = (side: 'long' | 'short', exit: number, lev = 10) =>
+  closePosition(openPosition(side, 50_000, 100, lev, 0, 0), exit, 1);
+
+describe('applyTrade', () => {
+  it('updates balance, lifetime pnl and per-side stats', () => {
+    let s = initialState(0);
+    s = applyTrade(s, trade('long', 50_500)); // +10
+    s = applyTrade(s, trade('long', 49_750)); // -5
+    s = applyTrade(s, trade('short', 49_000)); // +20
+    expect(s.balance).toBe(START_CAPITAL + 25);
+    expect(s.lifetimePnl).toBe(25);
+    const long = sideSummary(s, 'long');
+    expect(long.trades).toBe(2);
+    expect(long.winRate).toBe(50);
+    expect(long.best).toBe(10);
+    expect(long.worst).toBe(-5);
+    const all = summarize([s.stats.long, s.stats.short]);
+    expect(all.trades).toBe(3);
+    expect(all.avgWin).toBe(15);
+    expect(all.avgLoss).toBe(-5);
+    expect(s.equity).toHaveLength(4);
+  });
+
+  it('counts liquidations', () => {
+    const s = applyTrade(initialState(0), trade('long', 40_000));
+    expect(s.stats.long.liquidations).toBe(1);
+    expect(s.balance).toBe(START_CAPITAL - 100);
+  });
+});
+
+describe('resetAccount', () => {
+  it('refills the balance but keeps lifetime pnl and stats', () => {
+    let s = applyTrade(initialState(0), trade('long', 40_000));
+    s = resetAccount(s, 5);
+    expect(s.balance).toBe(START_CAPITAL);
+    expect(s.resets).toBe(1);
+    expect(s.lifetimePnl).toBe(-100);
+    expect(s.stats.long.trades).toBe(1);
+    expect(s.equity.at(-1)).toEqual({ t: 5, b: START_CAPITAL, r: 1 });
+  });
+});
+
+describe('summarize', () => {
+  it('returns nulls without trades', () => {
+    const r = summarize([initialState(0).stats.long]);
+    expect(r.winRate).toBeNull();
+    expect(r.best).toBeNull();
+  });
+});
+
+describe('compactEquity', () => {
+  it('stays bounded and keeps reset markers and the newest points', () => {
+    const pts = Array.from({ length: 2000 }, (_, i) => ({ t: i, b: i, ...(i === 1 ? { r: 1 as const } : {}) }));
+    const c = compactEquity(pts, 1500);
+    expect(c.length).toBeLessThan(2000);
+    expect(c.some((p) => p.r === 1)).toBe(true);
+    expect(c.at(-1)).toEqual(pts.at(-1));
+  });
+});
+
+describe('parseState', () => {
+  it('falls back to defaults on garbage', () => {
+    expect(parseState('nope', 0).balance).toBe(START_CAPITAL);
+    expect(parseState('{"v":2}', 0).balance).toBe(START_CAPITAL);
+    expect(parseState(null, 0).settings.leverage).toBe(10);
+  });
+  it('restores saved data and fills missing settings', () => {
+    const saved = { ...initialState(0), balance: 1234, settings: { stake: 50 } };
+    const s = parseState(JSON.stringify(saved), 0);
+    expect(s.balance).toBe(1234);
+    expect(s.settings.stake).toBe(50);
+    expect(s.settings.fees).toBe(true);
+  });
+});
