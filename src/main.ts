@@ -6,6 +6,7 @@ import { pct, price, usd, usdShort, zoomLabel } from './format';
 import { renderStats } from './stats-view';
 import { START_CAPITAL, applyTrade, clearState, initialState, loadState, resetAccount, saveState } from './store';
 import { Gestures, lockPageGestures } from './touch';
+import { BUILD_ID, fetchRemoteBuild, isNewer, reloadToLatest } from './update';
 import {
   type ClosedTrade,
   FEE_RATE,
@@ -442,6 +443,46 @@ renderControls();
 layoutInsets();
 requestAnimationFrame(frame);
 feed.start();
+
+// ---------- updates ----------
+const updateBtn = $<HTMLButtonElement>('updateBtn');
+$('buildId').textContent = BUILD_ID;
+let updateReady = false;
+
+async function checkForUpdate(): Promise<boolean> {
+  const remote = await fetchRemoteBuild(import.meta.env.BASE_URL);
+  updateReady = isNewer(BUILD_ID, remote);
+  updateBtn.hidden = !updateReady;
+  return updateReady;
+}
+
+updateBtn.addEventListener('click', () => {
+  if (!pos) void reloadToLatest();
+});
+
+$('checkUpdate').addEventListener('click', async () => {
+  if (pos) return;
+  const btn = $<HTMLButtonElement>('checkUpdate');
+  btn.disabled = true;
+  btn.textContent = 'Suche…';
+  const newer = await checkForUpdate();
+  if (newer) {
+    btn.textContent = 'Lade neue Version…';
+    await reloadToLatest();
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = '⟳ Neue Version laden';
+  toast({ title: 'Aktuell', sub: `Version ${BUILD_ID} ist die neueste`, kind: 'info' });
+});
+
+if (import.meta.env.PROD) {
+  setTimeout(() => void checkForUpdate(), 3000);
+  setInterval(() => void checkForUpdate(), 10 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) void checkForUpdate();
+  });
+}
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {

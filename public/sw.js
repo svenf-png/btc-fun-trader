@@ -1,5 +1,6 @@
 // App-shell cache. Prices come over WebSockets, which service workers never intercept.
-const CACHE = 'btc-fun-trader-v1';
+// The build id placeholder below is replaced at build time, so every deploy installs a fresh worker and cache.
+const CACHE = 'btc-fun-trader-__BUILD_ID__';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon.svg', './icons/apple-touch-icon.png', './icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
@@ -17,7 +18,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  // The version check must always hit the network.
+  if (url.pathname.endsWith('/version.json')) return;
 
   // Pages: network first so updates arrive, cache as offline fallback.
   if (req.mode === 'navigate') {
