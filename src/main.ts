@@ -66,6 +66,7 @@ const el = {
   pnlPct: $('pnlPct'),
   toast: $('toast'),
   liq: $('liq'),
+  chartError: $('chartError'),
 };
 
 // ---------- feedback ----------
@@ -262,6 +263,7 @@ const gestures = new Gestures(el.zone, {
 
 // ---------- price feed ----------
 let shownPrice = '';
+let chartError = '';
 const feed = new PriceFeed({
   onPrice: (p, at) => {
     lastPrice = p;
@@ -315,8 +317,21 @@ function frame(now: number): void {
       shownPrice = txt;
     }
   }
-  chart.render(now);
-  requestAnimationFrame(frame);
+  requestAnimationFrame(frame); // schedule first: a render error must never stop the loop
+  try {
+    chart.render(now);
+    if (chartError) {
+      chartError = '';
+      el.chartError.hidden = true;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    if (msg !== chartError) {
+      chartError = msg;
+      el.chartError.textContent = `Chart-Fehler: ${msg}`;
+      el.chartError.hidden = false;
+    }
+  }
 }
 
 // ---------- lifecycle ----------
