@@ -101,6 +101,8 @@ export class Chart {
   position: ChartPosition | null = null;
   /** Share of the plot width reserved for the future (grid mode), 0 = classic. */
   futureFraction = 0;
+  /** Smallest visible price range in USD (e.g. 5 price steps), on top of the relative minimum. */
+  minAbsRange = 0;
   /** Extra price range to keep visible (e.g. open grid bets). */
   extraRange: { lo: number; hi: number } | null = null;
   /** Draws on top of the price grid, below the candles; gets the current mapping. */
@@ -142,6 +144,13 @@ export class Chart {
     this.h = h;
     this.canvas.width = Math.max(1, Math.round(w * dpr));
     this.canvas.height = Math.max(1, Math.round(h * dpr));
+  }
+
+  /** Forget scale and head price, e.g. after switching to another market. */
+  reset(): void {
+    this.yMin = 0;
+    this.yMax = 0;
+    this.headP = 0;
   }
 
   /** Visible time window in seconds; animated unless `immediate`. */
@@ -204,7 +213,8 @@ export class Chart {
         hi = Math.max(hi, liq);
       }
     }
-    const minRange = Math.max(4, this.headP * 0.00012); // avoid zooming into noise
+    // avoid zooming into noise: relative minimum, and never fewer than a few price steps
+    const minRange = Math.max(this.headP * 0.00012, this.minAbsRange) || 1e-9;
     if (hi - lo < minRange) {
       const mid = (hi + lo) / 2;
       lo = mid - minRange / 2;
@@ -255,7 +265,7 @@ export class Chart {
     ctx.font = '600 11px ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    const decimals = step < 1 ? 2 : 0;
+    const decimals = step < 0.01 ? 3 : step < 1 ? 2 : 0;
     ctx.beginPath();
     for (let p = Math.ceil(this.yMin / step) * step; p <= this.yMax; p += step) {
       const y = Math.round(Y(p)) + 0.5;

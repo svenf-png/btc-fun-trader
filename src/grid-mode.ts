@@ -38,6 +38,8 @@ const fmtMoney = (v: number) =>
 export class GridMode {
   bets: Bet[] = [];
   rowSize = 5;
+  /** Rows are never smaller than one price step of the market. */
+  minRow = 0.01;
   private sigma = 1;
   private mults = new Map<string, number>();
   private lastRefresh = 0;
@@ -49,6 +51,14 @@ export class GridMode {
 
   get openBets(): Bet[] {
     return this.bets.filter((b) => b.status === 'open');
+  }
+
+  /** Drop everything, e.g. after switching to another market. */
+  clear(): void {
+    this.bets = [];
+    this.mults.clear();
+    this.lastSigma = 0;
+    this.lastRow = 0;
   }
 
   /** Price range of open bets, so the chart keeps them in view. */
@@ -75,12 +85,12 @@ export class GridMode {
   update(g: ChartGeom, ticks: PriceTick[], windowSec: number, price: number): void {
     const now = g.wall;
     if (now - this.lastSigma > 2000) {
-      this.sigma = volatility(ticks, now);
+      this.sigma = volatility(ticks, now, 60_000, price * 5e-6); // floor relative to the price
       this.lastSigma = now;
     }
     if (now - this.lastRow > 3000) {
       // rows follow the visible range (like the price axis), re-evaluated every 3 s so they do not jitter
-      this.rowSize = Math.max(1, niceStep(g.yMax - g.yMin, ROWS));
+      this.rowSize = Math.max(this.minRow, niceStep(g.yMax - g.yMin, ROWS));
       this.lastRow = now;
     }
     if (now - this.lastRefresh < REFRESH_MS) return;

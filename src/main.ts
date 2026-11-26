@@ -1,13 +1,12 @@
 import './style.css';
 import { Chart, type Tick, token } from './chart';
 import { type Cue, flash, haptic, hasVibration, playSound, unlockAudio } from './feedback';
-import { type FeedStatus, PriceFeed } from './feed';
+import { ASSETS, type FeedStatus, PriceFeed, assetById, sourcesFor } from './feed';
 import { pct, price, usd, usdShort, zoomLabel } from './format';
 import type { Bet } from './grid-logic';
 import { GridMode } from './grid-mode';
 import { renderStats } from './stats-view';
 import {
-  type GameMode,
   START_CAPITAL,
   applyTrade,
   clearState,
@@ -64,7 +63,6 @@ const el = {
   app: $('app'),
   zone: $('zone'),
   status: $('status'),
-  source: $('source'),
   price: $('price'),
   zoom: $<HTMLButtonElement>('zoomBtn'),
   header: $('top'),
@@ -82,6 +80,8 @@ const el = {
   toast: $('toast'),
   liq: $('liq'),
   mode: $<HTMLButtonElement>('modeBtn'),
+  closeBtn: $<HTMLButtonElement>('closeBtn'),
+  source: $<HTMLButtonElement>('source'),
   chartError: $('chartError'),
 };
 
@@ -148,8 +148,10 @@ function renderControls(): void {
         : 'Kontostand zu niedrig: im Menü 📊 zurücksetzen';
   }
   el.zoom.textContent = zoomLabel(state.settings.zoom);
-  el.mode.textContent = isGrid() ? '▦ Raster' : '✋ Halten';
-  el.mode.setAttribute('aria-label', `Spielmodus: ${isGrid() ? 'Raster' : 'Halten'}, antippen zum Wechseln`);
+  const m = MODE_INFO[state.settings.mode];
+  el.mode.textContent = m.label;
+  el.mode.setAttribute('aria-label', `Spielmodus: ${m.name}, antippen zum Wechseln`);
+  el.closeBtn.hidden = !(state.settings.mode === 'tap' && pos);
 }
 
 for (const lev of LEVERAGES) {
@@ -197,6 +199,7 @@ function canTrade(): string | null {
 function openTrade(side: Side): boolean {
   unlockAudio();
   if (isGrid()) return false; // grid mode: a tap places a bet instead (see placeBet)
+  if (pos) return false; // tap mode: one position at a time, closed with the button
   const reason = canTrade();
   if (reason) {
     feedback('denied');
@@ -210,6 +213,7 @@ function openTrade(side: Side): boolean {
   el.toast.className = '';
   updatePnl();
   feedback(side === 'long' ? 'enterLong' : 'enterShort');
+  renderControls(); // shows the close button in tap mode
   return true;
 }
 
@@ -218,9 +222,11 @@ function clearPosition(): void {
   chart.position = null;
   el.app.classList.remove('holding', 'long', 'short', 'win', 'lose');
   el.pnl.hidden = true;
+  el.closeBtn.hidden = true;
 }
 
-function finish(trade: ClosedTrade, note?: string): void {
+function finish(closed: ClosedTrade, note?: string): void {
+  const trade: ClosedTrade = { ...closed, asset: state.settings.asset };
   clearPosition();
   state = applyTrade(state, trade);
   save();
@@ -272,6 +278,7 @@ function updatePnl(): void {
     shownPnl = txt;
     el.pnlUsd.textContent = txt;
     el.pnlPct.textContent = pct(p);
+    el.closeBtn.textContent = `Schließen · ${txt}`;
     el.app.classList.toggle('win', win);
     el.app.classList.toggle('lose', !win);
   }
@@ -280,7 +287,9 @@ function updatePnl(): void {
 const grid = new GridMode();
 const gestures = new Gestures(el.zone, {
   holdStart: openTrade,
-  holdEnd: () => closeTrade(),
+  holdEnd: () => {
+    if (state.settings.mode === 'hold') closeTrade(); // tap mode: stays open until 'Schließen'
+  },
   holdVoid: voidTrade,
   pinchStart: () => undefined,
   pinch: (scale) => {
@@ -327,7 +336,7 @@ const feed = new PriceFeed({
     el.status.dataset.state = shown;
     el.status.querySelector('.label')!.textContent =
       shown === 'live' ? 'LIVE' : shown === 'connecting' ? 'verbinde…' : 'getrennt';
-    el.source.textContent = `BTC/USD · ${source}`;
+    el.source.textContent = `${assetById(state.settings.asset).id}/USD ⇄ · ${source}`;
     el.app.classList.toggle('offline', s !== 'live');
     if (s !== 'live' && pos) {
       gestures.release();
@@ -335,7 +344,7 @@ const feed = new PriceFeed({
     }
     if (s !== 'live') voidBets('Verbindung weg: offene Felder erstattet');
   },
-});
+}, sourcesFor(assetById(state.settings.asset)));
 
 // ---------- render loop ----------
 // Measured every frame, relative to the canvas: a one-off measurement at start-up can
@@ -349,8 +358,8 @@ function layoutInsets(): void {
   if (key === insetKey) return;
   insetKey = key;
   chart.insets = { top: top + 16, bottom: bottom + 16 };
-  el.zone.style.setProperty('--zone-t', `${Math.max(0, top)}px`);
-  el.zone.style.setProperty('--zone-b', `${Math.max(0, bottom)}px`);
+  el.app.style.setProperty('--zone-t', `${Math.max(0, top)}px`);
+  el.app.style.setProperty('--zone-b', `${Math.max(0, bottom)}px`);
 }
 
 function frame(now: number): void {
@@ -539,6 +548,12 @@ function gridColors() {
 }
 let colors = gridColors();
 
+const MODE_INFO = {
+  hold: { label: '✋ Halten', name: 'Halten', help: 'Oben halten = Long, unten = Short, loslassen schließt' },
+  tap: { label: '👆 Tippen', name: 'Tippen', help: 'Oben/unten tippen öffnet, „Schließen“ beendet' },
+  grid: { label: '▦ Raster', name: 'Raster', help: 'Feld rechts antippen: Kurs muss es berühren' },
+} as const;
+
 function applyMode(): void {
   const on = isGrid();
   chart.futureFraction = on ? 0.42 : 0;
@@ -549,6 +564,9 @@ function applyMode(): void {
       }
     : null;
   el.app.classList.toggle('grid-mode', on);
+  const verb = state.settings.mode === 'tap' ? 'tippen' : 'halten';
+  el.zone.querySelector('.hint-long small')!.textContent = `oben ${verb}`;
+  el.zone.querySelector('.hint-short small')!.textContent = `unten ${verb}`;
   renderControls();
 }
 
@@ -558,14 +576,37 @@ el.mode.addEventListener('click', () => {
     toast({ title: 'Erst offene Felder abwarten', kind: 'warn' }, 1400);
     return;
   }
-  state.settings.mode = (isGrid() ? 'hold' : 'grid') as GameMode;
+  const order = Object.keys(MODE_INFO) as (keyof typeof MODE_INFO)[];
+  state.settings.mode = order[(order.indexOf(state.settings.mode) + 1) % order.length];
   save();
   applyMode();
-  toast({
-    title: isGrid() ? '▦ Raster' : '✋ Halten',
-    sub: isGrid() ? 'Feld rechts antippen: Kurs muss es berühren' : 'Oben halten = Long, unten = Short',
-    kind: 'info',
-  }, 1800);
+  const m = MODE_INFO[state.settings.mode];
+  toast({ title: m.label, sub: m.help, kind: 'info' }, 1800);
+});
+
+el.closeBtn.addEventListener('click', () => {
+  if (pos) closeTrade();
+});
+
+// ---------- markets ----------
+el.source.addEventListener('click', () => {
+  if (pos || grid.openBets.length) {
+    toast({ title: 'Erst Position schließen', sub: 'Markt wechseln geht nur ohne offene Trades', kind: 'warn' }, 1600);
+    return;
+  }
+  const i = ASSETS.findIndex((a) => a.id === state.settings.asset);
+  const next = ASSETS[(i + 1) % ASSETS.length];
+  state.settings.asset = next.id;
+  save();
+  ticks.length = 0;
+  lastPrice = 0;
+  shownPrice = '';
+  el.price.textContent = '–';
+  chart.reset();
+  grid.clear();
+  applyMarket();
+  feed.setSources(sourcesFor(next));
+  toast({ title: `${next.id}/USD`, sub: next.name, kind: 'info' }, 1200);
 });
 
 function placeBet(x: number, y: number): void {
@@ -616,8 +657,16 @@ function voidBets(note: string): void {
   toast({ title: '↺ Erstattet', sub: note, kind: 'info' }, 2200);
 }
 
+function applyMarket(): void {
+  const asset = assetById(state.settings.asset);
+  chart.minAbsRange = asset.tick * 5;
+  grid.minRow = asset.tick;
+  el.source.textContent = `${asset.id}/USD ⇄`;
+}
+
 // ---------- boot ----------
 lockPageGestures();
+applyMarket();
 applyMode();
 renderControls();
 layoutInsets();

@@ -43,7 +43,7 @@
           <button id="settingsBtn" class="icon-btn" type="button" aria-label="Einstellungen">⚙️</button>
         </div>
         <div id="price" aria-live="off">–</div>
-        <div id="source">BTC/USD</div>
+        <button id="source" type="button" aria-label="Markt wechseln (BTC, ETH, SOL)">BTC/USD ⇄</button>
       </header>
 
       <div id="pnl" hidden aria-live="off">
@@ -53,6 +53,8 @@
       </div>
 
       <div id="toast" role="status" aria-live="polite"></div>
+
+      <button id="closeBtn" type="button" hidden>Schließen</button>
 
       <footer id="controls">
         <div class="row1">

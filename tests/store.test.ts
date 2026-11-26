@@ -133,3 +133,11 @@ describe('grid bets in the game state', () => {
     expect(parseState(JSON.stringify({ v: 1, balance: 5 }), 0).grid.bets).toBe(0);
   });
 });
+
+describe('settings: tap mode and asset', () => {
+  it('accepts the tap mode and known assets, repairs others', () => {
+    expect(normalizeSettings({ mode: 'tap', asset: 'SOL' })).toMatchObject({ mode: 'tap', asset: 'SOL' });
+    expect(normalizeSettings({ asset: 'PEPE' }).asset).toBe('BTC');
+    expect(normalizeSettings({}).asset).toBe('BTC');
+  });
+});

@@ -27,7 +27,8 @@ export interface EquityPoint {
   r?: 1; // marks a reset
 }
 
-export type GameMode = 'hold' | 'grid';
+export type GameMode = 'hold' | 'tap' | 'grid';
+export const GAME_MODES: GameMode[] = ['hold', 'tap', 'grid'];
 
 export interface GridStats {
   bets: number;
@@ -41,6 +42,7 @@ export const emptyGridStats = (): GridStats => ({ bets: 0, wins: 0, staked: 0, n
 
 export interface Settings {
   mode: GameMode;
+  asset: string; // 'BTC' | 'ETH' | 'SOL'
   stake: number;
   leverage: number;
   feeRate: number; // per side, one of FEE_LEVELS
@@ -75,6 +77,7 @@ export const emptySideStats = (): SideStats => ({
 
 export const defaultSettings = (): Settings => ({
   mode: 'hold',
+  asset: 'BTC',
   stake: 100,
   leverage: 10,
   feeRate: FEE_RATE,
@@ -238,7 +241,8 @@ export function normalizeSettings(raw: unknown): Settings {
   const { fees, ...rest } = r;
   const merged: Settings = { ...defaultSettings(), ...rest };
   if (!isFeeLevel(r.feeRate)) merged.feeRate = fees === false ? 0 : FEE_RATE;
-  if (merged.mode !== 'grid') merged.mode = 'hold';
+  if (!GAME_MODES.includes(merged.mode)) merged.mode = 'hold';
+  if (!['BTC', 'ETH', 'SOL'].includes(merged.asset)) merged.asset = 'BTC';
   return merged;
 }
 
