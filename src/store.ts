@@ -1,7 +1,7 @@
 // Game state, statistics and localStorage persistence.
 // The reducers (applyTrade, resetAccount) are pure and unit-tested.
 
-import { type ClosedTrade, type Side, roundCents } from './trading';
+import { type ClosedTrade, FEE_RATE, type Side, isFeeLevel, roundCents } from './trading';
 
 export const START_CAPITAL = 10_000;
 const STORAGE_KEY = 'btc-fun-trader:v1';
@@ -29,7 +29,7 @@ export interface EquityPoint {
 export interface Settings {
   stake: number;
   leverage: number;
-  fees: boolean;
+  feeRate: number; // per side, one of FEE_LEVELS
   sound: boolean;
   haptics: boolean;
   zoom: number; // visible seconds
@@ -61,7 +61,7 @@ export const emptySideStats = (): SideStats => ({
 export const defaultSettings = (): Settings => ({
   stake: 100,
   leverage: 10,
-  fees: true,
+  feeRate: FEE_RATE,
   sound: true,
   haptics: true,
   zoom: 60,
@@ -179,11 +179,20 @@ export function parseState(raw: string | null, now: number): GameState {
       },
       equity: Array.isArray(d.equity) && d.equity.length ? d.equity : fresh.equity,
       trades: Array.isArray(d.trades) ? d.trades : [],
-      settings: { ...defaultSettings(), ...d.settings },
+      settings: normalizeSettings(d.settings),
     };
   } catch {
     return fresh;
   }
+}
+
+/** Fills missing settings and migrates the old on/off fee switch to a fee level. */
+export function normalizeSettings(raw: unknown): Settings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Settings> & { fees?: unknown };
+  const { fees, ...rest } = r;
+  const merged: Settings = { ...defaultSettings(), ...rest };
+  if (!isFeeLevel(r.feeRate)) merged.feeRate = fees === false ? 0 : FEE_RATE;
+  return merged;
 }
 
 export function loadState(): GameState {

@@ -7,8 +7,17 @@ export type Leverage = (typeof LEVERAGES)[number];
 
 export const STAKES = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000] as const;
 
-/** 0.05 % of position value, charged on entry and on exit. */
+/** 0.05 % of position value, charged on entry and on exit (default, typical taker fee). */
 export const FEE_RATE = 0.0005;
+
+/** Selectable fee levels per side: off, typical maker (limit order) and typical taker (market order). */
+export const FEE_LEVELS = [
+  { rate: 0, label: 'Aus', hint: 'Spaßmodus' },
+  { rate: 0.0002, label: '0,02 %', hint: 'Maker' },
+  { rate: 0.0005, label: '0,05 %', hint: 'Taker' },
+] as const;
+
+export const isFeeLevel = (v: unknown): v is number => FEE_LEVELS.some((l) => l.rate === v);
 
 export interface Position {
   side: Side;
