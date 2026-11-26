@@ -297,17 +297,23 @@ const feed = new PriceFeed({
 });
 
 // ---------- render loop ----------
+// Measured every frame, relative to the canvas: a one-off measurement at start-up can
+// happen before iOS has applied the stylesheet and would then stay wrong.
+let insetKey = '';
 function layoutInsets(): void {
-  const h = window.innerHeight;
-  const top = el.header.getBoundingClientRect().bottom;
-  const bottom = h - el.footer.getBoundingClientRect().top;
+  const canvas = $('chart').getBoundingClientRect();
+  const top = Math.round(el.header.getBoundingClientRect().bottom - canvas.top);
+  const bottom = Math.round(canvas.bottom - el.footer.getBoundingClientRect().top);
+  const key = `${top}|${bottom}`;
+  if (key === insetKey) return;
+  insetKey = key;
   chart.insets = { top: top + 16, bottom: bottom + 16 };
-  el.zone.style.setProperty('--zone-t', `${Math.round(top)}px`);
-  el.zone.style.setProperty('--zone-b', `${Math.round(bottom)}px`);
+  el.zone.style.setProperty('--zone-t', `${Math.max(0, top)}px`);
+  el.zone.style.setProperty('--zone-b', `${Math.max(0, bottom)}px`);
 }
-window.addEventListener('resize', layoutInsets);
 
 function frame(now: number): void {
+  layoutInsets();
   if (lastPrice) {
     const txt = price(lastPrice);
     if (txt !== shownPrice) {
