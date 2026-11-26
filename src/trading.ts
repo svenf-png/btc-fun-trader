@@ -45,6 +45,7 @@ export interface ClosedTrade {
   liquidated: boolean;
   openedAt: number;
   closedAt: number;
+  asset?: string; // market, e.g. 'ETH' (older trades: BTC)
 }
 
 export const roundCents = (v: number): number => Math.round(v * 100) / 100;

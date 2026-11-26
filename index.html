@@ -37,12 +37,13 @@
           </span>
           <span class="spacer"></span>
           <button id="updateBtn" class="chip update" type="button" hidden>⬆ Update</button>
+          <button id="modeBtn" class="chip mode" type="button">✋ Halten</button>
           <button id="zoomBtn" class="chip" type="button" aria-label="Zeitfenster wechseln">1 min</button>
           <button id="statsBtn" class="icon-btn" type="button" aria-label="Statistik">📊</button>
           <button id="settingsBtn" class="icon-btn" type="button" aria-label="Einstellungen">⚙️</button>
         </div>
         <div id="price" aria-live="off">–</div>
-        <div id="source">BTC/USD</div>
+        <button id="source" type="button" aria-label="Markt wechseln (BTC, ETH, SOL)">BTC/USD ⇄</button>
       </header>
 
       <div id="pnl" hidden aria-live="off">
@@ -52,6 +53,8 @@
       </div>
 
       <div id="toast" role="status" aria-live="polite"></div>
+
+      <button id="closeBtn" type="button" hidden>Schließen</button>
 
       <footer id="controls">
         <div class="row1">
