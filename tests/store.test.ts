@@ -5,6 +5,8 @@ import {
   compactEquity,
   initialState,
   normalizeSettings,
+  placeGridStake,
+  settleGridBet,
   parseState,
   resetAccount,
   sideSummary,
@@ -102,5 +104,32 @@ describe('normalizeSettings (fee levels)', () => {
   it('is applied when loading a saved game', () => {
     const old = { ...initialState(0), settings: { stake: 50, fees: false } };
     expect(parseState(JSON.stringify(old), 0).settings.feeRate).toBe(0);
+  });
+});
+
+describe('grid bets in the game state', () => {
+  const bet = (status: 'won' | 'lost' | 'void') => ({
+    id: 1, start: 0, end: 1, lo: 0, hi: 1, stake: 100, mult: 2.5, placedAt: 0, status, settledAt: 5,
+  });
+  it('holds the stake, then pays stake × multiplier on a win', () => {
+    let s = placeGridStake(initialState(0), 100);
+    expect(s.balance).toBe(START_CAPITAL - 100);
+    s = settleGridBet(s, bet('won'));
+    expect(s.balance).toBe(START_CAPITAL + 150);
+    expect(s.lifetimePnl).toBe(150);
+    expect(s.grid).toEqual({ bets: 1, wins: 1, staked: 100, net: 150, best: 150 });
+  });
+  it('keeps the stake on a loss and refunds a void bet', () => {
+    let s = settleGridBet(placeGridStake(initialState(0), 100), bet('lost'));
+    expect(s.balance).toBe(START_CAPITAL - 100);
+    expect(s.grid.net).toBe(-100);
+    s = settleGridBet(placeGridStake(initialState(0), 100), bet('void'));
+    expect(s.balance).toBe(START_CAPITAL);
+    expect(s.grid.bets).toBe(0);
+  });
+  it('defaults to hold mode and repairs unknown modes', () => {
+    expect(normalizeSettings({ mode: 'grid' }).mode).toBe('grid');
+    expect(normalizeSettings({ mode: 'x' }).mode).toBe('hold');
+    expect(parseState(JSON.stringify({ v: 1, balance: 5 }), 0).grid.bets).toBe(0);
   });
 });

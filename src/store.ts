@@ -1,6 +1,7 @@
 // Game state, statistics and localStorage persistence.
 // The reducers (applyTrade, resetAccount) are pure and unit-tested.
 
+import { type Bet, betNet } from './grid-logic';
 import { type ClosedTrade, FEE_RATE, type Side, isFeeLevel, roundCents } from './trading';
 
 export const START_CAPITAL = 10_000;
@@ -26,7 +27,20 @@ export interface EquityPoint {
   r?: 1; // marks a reset
 }
 
+export type GameMode = 'hold' | 'grid';
+
+export interface GridStats {
+  bets: number;
+  wins: number;
+  staked: number;
+  net: number;
+  best: number | null; // largest win (net)
+}
+
+export const emptyGridStats = (): GridStats => ({ bets: 0, wins: 0, staked: 0, net: 0, best: null });
+
 export interface Settings {
+  mode: GameMode;
   stake: number;
   leverage: number;
   feeRate: number; // per side, one of FEE_LEVELS
@@ -41,6 +55,7 @@ export interface GameState {
   lifetimePnl: number;
   resets: number;
   stats: { long: SideStats; short: SideStats };
+  grid: GridStats;
   equity: EquityPoint[];
   trades: ClosedTrade[]; // newest first
   settings: Settings;
@@ -59,6 +74,7 @@ export const emptySideStats = (): SideStats => ({
 });
 
 export const defaultSettings = (): Settings => ({
+  mode: 'hold',
   stake: 100,
   leverage: 10,
   feeRate: FEE_RATE,
@@ -74,6 +90,7 @@ export function initialState(now: number): GameState {
     lifetimePnl: 0,
     resets: 0,
     stats: { long: emptySideStats(), short: emptySideStats() },
+    grid: emptyGridStats(),
     equity: [{ t: now, b: START_CAPITAL }],
     trades: [],
     settings: defaultSettings(),
@@ -112,6 +129,34 @@ export function applyTrade(state: GameState, t: ClosedTrade): GameState {
     stats: { ...state.stats, [t.side]: addToSide(state.stats[t.side], t) },
     equity: compactEquity([...state.equity, { t: t.closedAt, b: balance }]),
     trades: [t, ...state.trades].slice(0, MAX_TRADES),
+  };
+}
+
+/** Grid bet placed: the stake leaves the balance right away (held until settled). */
+export function placeGridStake(state: GameState, stake: number): GameState {
+  return { ...state, balance: Math.max(0, roundCents(state.balance - stake)) };
+}
+
+/** Grid bet settled: pays out wins, refunds voids, books the result. */
+export function settleGridBet(state: GameState, bet: Bet): GameState {
+  if (bet.status === 'open') return state;
+  if (bet.status === 'void') return { ...state, balance: roundCents(state.balance + bet.stake) };
+  const net = betNet(bet);
+  const payout = bet.status === 'won' ? roundCents(bet.stake + net) : 0;
+  const balance = roundCents(state.balance + payout);
+  const g = state.grid;
+  return {
+    ...state,
+    balance,
+    lifetimePnl: roundCents(state.lifetimePnl + net),
+    grid: {
+      bets: g.bets + 1,
+      wins: g.wins + (bet.status === 'won' ? 1 : 0),
+      staked: roundCents(g.staked + bet.stake),
+      net: roundCents(g.net + net),
+      best: bet.status === 'won' ? Math.max(g.best ?? 0, net) : g.best,
+    },
+    equity: compactEquity([...state.equity, { t: bet.settledAt ?? Date.now(), b: balance }]),
   };
 }
 
@@ -177,6 +222,7 @@ export function parseState(raw: string | null, now: number): GameState {
         long: { ...emptySideStats(), ...d.stats?.long },
         short: { ...emptySideStats(), ...d.stats?.short },
       },
+      grid: { ...emptyGridStats(), ...d.grid },
       equity: Array.isArray(d.equity) && d.equity.length ? d.equity : fresh.equity,
       trades: Array.isArray(d.trades) ? d.trades : [],
       settings: normalizeSettings(d.settings),
@@ -192,6 +238,7 @@ export function normalizeSettings(raw: unknown): Settings {
   const { fees, ...rest } = r;
   const merged: Settings = { ...defaultSettings(), ...rest };
   if (!isFeeLevel(r.feeRate)) merged.feeRate = fees === false ? 0 : FEE_RATE;
+  if (merged.mode !== 'grid') merged.mode = 'hold';
   return merged;
 }
 

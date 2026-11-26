@@ -67,6 +67,19 @@ export function renderStats(root: HTMLElement, state: GameState): void {
   });
   root.append(table);
 
+  if (state.grid.bets) {
+    const g = state.grid;
+    root.append(node('h3', '', 'Raster-Modus'));
+    const gc = node('div', 'cards');
+    gc.append(
+      card('Felder gesetzt', String(g.bets)),
+      card('Trefferquote', pct((g.wins / g.bets) * 100, false)),
+      card('Netto', usd(g.net, true), tone(g.net)),
+      card('Bester Treffer', money(g.best), tone(g.best)),
+    );
+    root.append(gc);
+  }
+
   if (state.trades.length) {
     root.append(node('h3', '', 'Letzte Trades'));
     const list = node('ul', 'trades');

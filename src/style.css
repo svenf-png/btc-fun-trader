@@ -223,6 +223,14 @@ input:focus-visible {
   place-items: center;
   cursor: pointer;
 }
+.chip.mode {
+  color: var(--text);
+}
+.grid-mode .hint,
+.grid-mode .midline,
+.grid-mode .levs {
+  display: none;
+}
 .chip.update {
   color: #160f33;
   background: var(--up);

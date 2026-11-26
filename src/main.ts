@@ -1,10 +1,23 @@
 import './style.css';
-import { Chart, type Tick } from './chart';
+import { Chart, type Tick, token } from './chart';
 import { type Cue, flash, haptic, hasVibration, playSound, unlockAudio } from './feedback';
 import { type FeedStatus, PriceFeed } from './feed';
 import { pct, price, usd, usdShort, zoomLabel } from './format';
+import type { Bet } from './grid-logic';
+import { GridMode } from './grid-mode';
 import { renderStats } from './stats-view';
-import { START_CAPITAL, applyTrade, clearState, initialState, loadState, resetAccount, saveState } from './store';
+import {
+  type GameMode,
+  START_CAPITAL,
+  applyTrade,
+  clearState,
+  initialState,
+  loadState,
+  placeGridStake,
+  resetAccount,
+  saveState,
+  settleGridBet,
+} from './store';
 import { Gestures, lockPageGestures } from './touch';
 import { BUILD_ID, fetchRemoteBuild, isNewer, reloadToLatest } from './update';
 import {
@@ -68,6 +81,7 @@ const el = {
   pnlPct: $('pnlPct'),
   toast: $('toast'),
   liq: $('liq'),
+  mode: $<HTMLButtonElement>('modeBtn'),
   chartError: $('chartError'),
 };
 
@@ -124,7 +138,18 @@ function renderControls(): void {
     s >= 1
       ? `Position ${usdShort(s * lev)} · Liquidation bei ±${move} %${feeRate() > 0 ? ` · Gebühr ${feeLabel()}` : ' · ohne Gebühr'}${capped ? ' · Einsatz begrenzt' : ''}`
       : 'Kontostand zu niedrig: im Menü 📊 zurücksetzen';
+  if (isGrid()) {
+    const open = grid.openBets.length;
+    el.stake.textContent = usdShort(gridStake());
+    el.stake.classList.remove('capped');
+    el.posInfo.textContent =
+      gridStake() >= 1
+        ? `Raster: Feld rechts antippen · Einsatz ${usdShort(gridStake())} je Feld${open ? ` · ${open} offen` : ''}`
+        : 'Kontostand zu niedrig: im Menü 📊 zurücksetzen';
+  }
   el.zoom.textContent = zoomLabel(state.settings.zoom);
+  el.mode.textContent = isGrid() ? '▦ Raster' : '✋ Halten';
+  el.mode.setAttribute('aria-label', `Spielmodus: ${isGrid() ? 'Raster' : 'Halten'}, antippen zum Wechseln`);
 }
 
 for (const lev of LEVERAGES) {
@@ -171,6 +196,7 @@ function canTrade(): string | null {
 
 function openTrade(side: Side): boolean {
   unlockAudio();
+  if (isGrid()) return false; // grid mode: a tap places a bet instead (see placeBet)
   const reason = canTrade();
   if (reason) {
     feedback('denied');
@@ -251,6 +277,7 @@ function updatePnl(): void {
   }
 }
 
+const grid = new GridMode();
 const gestures = new Gestures(el.zone, {
   holdStart: openTrade,
   holdEnd: () => closeTrade(),
@@ -259,6 +286,9 @@ const gestures = new Gestures(el.zone, {
   pinch: (scale) => {
     const base = state.settings.zoom;
     chart.setWindow(Math.max(20, Math.min(400, base / scale)), true);
+  },
+  tap: (x, y) => {
+    if (isGrid()) placeBet(x, y);
   },
   pinchEnd: (scale) => {
     const i = ZOOMS.indexOf(state.settings.zoom);
@@ -276,6 +306,9 @@ const feed = new PriceFeed({
   onPrice: (p, at) => {
     lastPrice = p;
     const last = ticks[ticks.length - 1];
+    if (last && grid.openBets.length) {
+      for (const bet of grid.onTick({ t: last.t, p: last.p }, { t: at, p })) settleBet(bet);
+    }
     if (last && at - last.t < 16) last.p = p; // coalesce bursts within one frame
     else ticks.push({ t: at, p });
     while (ticks.length > 2 && ticks[0].t < at - HISTORY_MS) ticks.shift();
@@ -300,6 +333,7 @@ const feed = new PriceFeed({
       gestures.release();
       closeTrade('Verbindung weg: zum letzten Kurs geschlossen');
     }
+    if (s !== 'live') voidBets('Verbindung weg: offene Felder erstattet');
   },
 });
 
@@ -332,6 +366,11 @@ function frame(now: number): void {
     }
   }
   requestAnimationFrame(frame); // schedule first: a render error must never stop the loop
+  if (grid.bets.length) {
+    for (const bet of grid.expire(Date.now())) settleBet(bet);
+    chart.extraRange = grid.range;
+    if (chart.geom) grid.prune(chart.geom);
+  } else chart.extraRange = null;
   try {
     chart.render(now);
     if (chartError) {
@@ -355,13 +394,17 @@ document.addEventListener('visibilitychange', () => {
       gestures.release();
       closeTrade('App verlassen: Position geschlossen');
     }
+    voidBets('App verlassen: offene Felder erstattet');
     feed.stop();
   } else {
     feed.restart();
   }
 });
 window.addEventListener('online', () => feed.restart());
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => chart.readColors());
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  chart.readColors();
+  colors = gridColors();
+});
 
 // ---------- sheets ----------
 function openSheet(id: 'stats' | 'settings'): void {
@@ -475,8 +518,107 @@ for (const level of FEE_LEVELS) {
 // unlock audio on the very first interaction anywhere
 document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
 
+// ---------- grid mode ----------
+function isGrid(): boolean {
+  return state.settings.mode === 'grid';
+}
+
+function gridStake(): number {
+  return Math.max(0, Math.min(state.settings.stake, Math.floor(state.balance * 100) / 100));
+}
+
+function gridColors() {
+  return {
+    cell: token('--chart-line', '#a78bfa'),
+    text: token('--muted', '#8f89b3'),
+    accent: token('--chart-line', '#a78bfa'),
+    up: token('--up', '#2ee6a6'),
+    down: token('--down', '#ff5277'),
+    strong: token('--text', '#f4f1ff'),
+  };
+}
+let colors = gridColors();
+
+function applyMode(): void {
+  const on = isGrid();
+  chart.futureFraction = on ? 0.42 : 0;
+  chart.overlay = on
+    ? (ctx, g) => {
+        if (lastPrice) grid.update(g, ticks, state.settings.zoom, lastPrice);
+        grid.draw(ctx, g, state.settings.zoom, colors);
+      }
+    : null;
+  el.app.classList.toggle('grid-mode', on);
+  renderControls();
+}
+
+el.mode.addEventListener('click', () => {
+  if (pos) return;
+  if (grid.openBets.length) {
+    toast({ title: 'Erst offene Felder abwarten', kind: 'warn' }, 1400);
+    return;
+  }
+  state.settings.mode = (isGrid() ? 'hold' : 'grid') as GameMode;
+  save();
+  applyMode();
+  toast({
+    title: isGrid() ? '▦ Raster' : '✋ Halten',
+    sub: isGrid() ? 'Feld rechts antippen: Kurs muss es berühren' : 'Oben halten = Long, unten = Short',
+    kind: 'info',
+  }, 1800);
+});
+
+function placeBet(x: number, y: number): void {
+  unlockAudio();
+  const g = chart.geom;
+  if (!g) return;
+  if (feedStatus !== 'live' || !lastPrice) {
+    feedback('denied');
+    toast({ title: 'Keine Live-Verbindung', sub: 'Warte auf LIVE', kind: 'warn' });
+    return;
+  }
+  const cell = grid.hit(x, y, g, state.settings.zoom);
+  if (!cell) {
+    toast({ title: 'Feld rechts antippen', sub: 'Nur zukünftige Felder rechts der Linie', kind: 'info' }, 1300);
+    return;
+  }
+  if (grid.openBets.some((b) => b.start === cell.start && b.lo === cell.lo)) return; // already placed
+  const stake = gridStake();
+  if (stake < 1) {
+    feedback('denied');
+    toast({ title: 'Kontostand zu niedrig', sub: 'Im Menü 📊 zurücksetzen', kind: 'warn' });
+    return;
+  }
+  grid.place(cell, stake, lastPrice, Date.now());
+  state = placeGridStake(state, stake);
+  save();
+  renderControls();
+  feedback(cell.lo >= lastPrice ? 'enterLong' : 'enterShort');
+}
+
+function settleBet(bet: Bet): void {
+  state = settleGridBet(state, bet);
+  save();
+  renderControls();
+  if (bet.status === 'won') {
+    const net = bet.stake * (bet.mult - 1);
+    feedback('win', 'up');
+    toast({ title: usd(net, true), sub: `Treffer · ${bet.mult.toLocaleString('de-DE')}×`, kind: 'up' }, 1500);
+  } else if (bet.status === 'lost') {
+    if (state.settings.sound) playSound('loss');
+  }
+}
+
+function voidBets(note: string): void {
+  const voided = grid.voidOpen(Date.now());
+  if (!voided.length) return;
+  for (const bet of voided) settleBet(bet);
+  toast({ title: '↺ Erstattet', sub: note, kind: 'info' }, 2200);
+}
+
 // ---------- boot ----------
 lockPageGestures();
+applyMode();
 renderControls();
 layoutInsets();
 requestAnimationFrame(frame);

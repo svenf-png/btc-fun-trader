@@ -15,7 +15,11 @@ export interface GestureHandlers {
   pinchStart: () => void;
   pinch: (scale: number) => void;
   pinchEnd: (scale: number) => void;
+  /** A short touch that did not open a trade and did not move (grid mode). */
+  tap?: (x: number, y: number) => void;
 }
+
+const TAP_SLOP_PX = 12;
 
 type Mode = 'idle' | 'hold' | 'blocked' | 'pinch' | 'drain';
 
@@ -27,6 +31,8 @@ export class Gestures {
   private pinchIds: [number, number] = [-1, -1];
   private startDist = 1;
   private scale = 1;
+  private downAt = { x: 0, y: 0 };
+  private moved = false;
 
   constructor(
     private readonly zone: HTMLElement,
@@ -78,6 +84,8 @@ export class Gestures {
     if (this.pts.size === 1 && this.mode === 'idle') {
       this.primary = e.pointerId;
       this.holdAt = performance.now();
+      this.downAt = { x: e.clientX, y: e.clientY };
+      this.moved = false;
       this.mode = this.h.holdStart(this.sideAt(e.clientY)) ? 'hold' : 'blocked';
       return;
     }
@@ -98,6 +106,9 @@ export class Gestures {
     if (!p) return;
     p.x = e.clientX;
     p.y = e.clientY;
+    if (e.pointerId === this.primary && Math.hypot(p.x - this.downAt.x, p.y - this.downAt.y) > TAP_SLOP_PX) {
+      this.moved = true;
+    }
     if (this.mode === 'pinch' && this.pinchIds.includes(e.pointerId)) {
       this.scale = this.dist() / this.startDist;
       this.h.pinch(this.scale);
@@ -115,6 +126,7 @@ export class Gestures {
       this.h.pinchEnd(this.scale);
     } else if (this.mode === 'blocked' && e.pointerId === this.primary) {
       this.mode = 'drain';
+      if (!this.moved && this.pts.size === 0) this.h.tap?.(e.clientX, e.clientY);
     }
     if (this.pts.size === 0) this.mode = 'idle';
   };

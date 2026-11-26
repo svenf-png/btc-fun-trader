@@ -1,5 +1,6 @@
 // Full-screen, continuously scrolling line chart on a canvas (requestAnimationFrame).
 
+import { buildCandles, candleMs } from './candles';
 import type { Side } from './trading';
 
 export interface Tick {
@@ -14,6 +15,20 @@ export interface ChartPosition {
   /** Exit price that nets exactly zero after fees; omitted when fees are off. */
   breakEven?: number;
   winning: boolean;
+}
+
+export interface ChartGeom {
+  wall: number; // Date.now() of the frame
+  headX: number; // x of "now"
+  plotR: number; // right edge of the plot (axis starts here)
+  top: number;
+  bottom: number;
+  yMin: number;
+  yMax: number;
+  X: (t: number) => number;
+  Y: (p: number) => number;
+  invX: (x: number) => number;
+  invY: (y: number) => number;
 }
 
 export interface ChartInsets {
@@ -84,6 +99,14 @@ export class Chart {
   windowSec = 60; // currently drawn (animated)
   targetWindowSec = 60;
   position: ChartPosition | null = null;
+  /** Share of the plot width reserved for the future (grid mode), 0 = classic. */
+  futureFraction = 0;
+  /** Extra price range to keep visible (e.g. open grid bets). */
+  extraRange: { lo: number; hi: number } | null = null;
+  /** Draws on top of the price grid, below the candles; gets the current mapping. */
+  overlay: ((ctx: CanvasRenderingContext2D, g: ChartGeom) => void) | null = null;
+  /** Mapping of the last frame, for hit-testing taps. */
+  geom: ChartGeom | null = null;
   insets: ChartInsets = { top: 140, bottom: 150 };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -147,22 +170,24 @@ export class Chart {
 
     const wall = Date.now();
     const plotR = w - AXIS_W;
-    const headX = plotR - HEAD_GAP;
+    // grid mode keeps the right part of the plot free for future cells
+    const headX = this.futureFraction > 0 ? plotR * (1 - this.futureFraction) : plotR - HEAD_GAP;
     const { top, bottom } = plotArea(h, this.insets);
     const span = this.windowSec * 1000;
     const pxPerMs = headX / span;
-    const t0 = wall - span - 2000;
+    const bucket = candleMs(this.targetWindowSec);
+    const candles = buildCandles(this.ticks, bucket, wall - span - bucket, wall);
 
     // visible range for autoscale
-    let lo = this.headP;
-    let hi = this.headP;
-    let first = this.ticks.length - 1;
-    for (let i = this.ticks.length - 1; i >= 0; i--) {
-      const tk = this.ticks[i];
-      first = i;
-      if (tk.t < t0) break;
-      if (tk.p < lo) lo = tk.p;
-      if (tk.p > hi) hi = tk.p;
+    let lo = last.p;
+    let hi = last.p;
+    for (const cd of candles) {
+      if (cd.l < lo) lo = cd.l;
+      if (cd.h > hi) hi = cd.h;
+    }
+    if (this.extraRange) {
+      lo = Math.min(lo, this.extraRange.lo);
+      hi = Math.max(hi, this.extraRange.hi);
     }
     if (this.position) {
       const { entry, liq, breakEven } = this.position;
@@ -198,13 +223,27 @@ export class Chart {
     const yr = this.yMax - this.yMin || 1;
     const X = (t: number) => headX - (wall - t) * pxPerMs;
     const Y = (p: number) => bottom - ((p - this.yMin) / yr) * (bottom - top);
+    this.geom = {
+      wall,
+      headX,
+      plotR,
+      top,
+      bottom,
+      yMin: this.yMin,
+      yMax: this.yMax,
+      X,
+      Y,
+      invX: (x: number) => wall + (x - headX) / pxPerMs,
+      invY: (y: number) => this.yMin + ((bottom - y) / (bottom - top)) * yr,
+    };
 
-    // vertical time grid, scrolls with time
+    // vertical time grid, scrolls with time (extends into the future area in grid mode)
     const tStep = this.windowSec <= 45 ? 5000 : this.windowSec <= 120 ? 10000 : 60000;
+    const tEnd = wall + (plotR - headX) / pxPerMs;
     ctx.strokeStyle = c.grid;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let t = Math.ceil((wall - span) / tStep) * tStep; t <= wall; t += tStep) {
+    for (let t = Math.ceil((wall - span) / tStep) * tStep; t <= tEnd; t += tStep) {
       const x = Math.round(X(t)) + 0.5;
       ctx.moveTo(x, top - 20);
       ctx.lineTo(x, bottom + 20);
@@ -236,54 +275,52 @@ export class Chart {
       );
     }
 
-    const lineColor = this.position ? (this.position.winning ? c.up : c.down) : c.line;
+    // grid-mode cells (drawn below the candles)
+    this.overlay?.(ctx, this.geom);
 
-    // price path
-    ctx.beginPath();
-    let started = false;
-    for (let i = first; i < this.ticks.length; i++) {
-      const tk = this.ticks[i];
-      const x = X(tk.t);
-      const y = Y(tk.p);
-      if (!started) {
-        ctx.moveTo(x, y);
-        started = true;
-      } else ctx.lineTo(x, y);
+    // candles
+    const slot = bucket * pxPerMs;
+    const bodyW = Math.max(1.5, Math.min(14, slot * 0.68));
+    for (const cd of candles) {
+      const x = X(cd.t + bucket / 2);
+      if (x < -bodyW || x > headX + bodyW) continue;
+      const live = cd === candles[candles.length - 1];
+      const close = live ? this.headP : cd.c;
+      const up = close >= cd.o;
+      const col = up ? c.up : c.down;
+      const yh = Y(Math.max(cd.h, close));
+      const yl = Y(Math.min(cd.l, close));
+      const yo = Y(cd.o);
+      const yc = Y(close);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x) + 0.5, yh);
+      ctx.lineTo(Math.round(x) + 0.5, yl);
+      ctx.stroke();
+      const bodyTop = Math.min(yo, yc);
+      const bodyH = Math.max(1.5, Math.abs(yc - yo));
+      ctx.fillStyle = col;
+      if (live) {
+        ctx.shadowColor = withAlpha(col, 0.7);
+        ctx.shadowBlur = 10;
+      }
+      ctx.fillRect(x - bodyW / 2, bodyTop, bodyW, bodyH);
+      ctx.shadowBlur = 0;
     }
+
+    // current price line across the plot
     const hy = Y(this.headP);
-    ctx.lineTo(headX, hy);
-
-    // area fill
+    const lineColor = this.position ? (this.position.winning ? c.up : c.down) : c.line;
     ctx.save();
-    ctx.lineTo(headX, bottom + 40);
-    ctx.lineTo(X(this.ticks[first].t), bottom + 40);
-    ctx.closePath();
-    const g = ctx.createLinearGradient(0, top, 0, bottom + 40);
-    g.addColorStop(0, withAlpha(lineColor, 0.28));
-    g.addColorStop(1, withAlpha(lineColor, 0));
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.restore();
-
-    // line on top
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = withAlpha(lineColor, 0.8);
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    started = false;
-    for (let i = first; i < this.ticks.length; i++) {
-      const tk = this.ticks[i];
-      if (!started) {
-        ctx.moveTo(X(tk.t), Y(tk.p));
-        started = true;
-      } else ctx.lineTo(X(tk.t), Y(tk.p));
-    }
-    ctx.lineTo(headX, hy);
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 2.5;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.shadowColor = withAlpha(lineColor, 0.6);
-    ctx.shadowBlur = 12;
+    ctx.moveTo(0, Math.round(hy) + 0.5);
+    ctx.lineTo(plotR, Math.round(hy) + 0.5);
     ctx.stroke();
-    ctx.shadowBlur = 0;
+    ctx.restore();
 
     // entry and liquidation lines
     if (this.position) {
@@ -297,16 +334,24 @@ export class Chart {
       if (ly > top - 40 && ly < bottom + 40) this.hLine(ly, plotR, c.warn, `⚠ ${fmt(pos.liq)}`, [2, 4]);
     }
 
-    // live point with pulse
-    const pulse = (Math.sin(now / 260) + 1) / 2;
-    ctx.fillStyle = withAlpha(lineColor, 0.18 + pulse * 0.15);
-    ctx.beginPath();
-    ctx.arc(headX, hy, 9 + pulse * 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = lineColor;
-    ctx.beginPath();
-    ctx.arc(headX, hy, 4.5, 0, Math.PI * 2);
-    ctx.fill();
+    // "now" marker in grid mode: everything right of it is the future
+    if (this.futureFraction > 0) {
+      ctx.strokeStyle = withAlpha(c.strong, 0.35);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(headX) + 0.5, top - 20);
+      ctx.lineTo(Math.round(headX) + 0.5, bottom + 20);
+      ctx.stroke();
+      const pulse = (Math.sin(now / 260) + 1) / 2;
+      ctx.fillStyle = withAlpha(lineColor, 0.2 + pulse * 0.15);
+      ctx.beginPath();
+      ctx.arc(headX, hy, 8 + pulse * 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = lineColor;
+      ctx.beginPath();
+      ctx.arc(headX, hy, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // current price tag on the axis
     this.tag(hy, plotR, lineColor, fmt(last.p), true);
