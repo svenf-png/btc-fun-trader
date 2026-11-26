@@ -41,6 +41,22 @@ export function token(name: string, fallback: string): string {
   return HEX.test(v) ? v : fallback;
 }
 
+const MIN_PLOT = 120; // px; below this the measured insets are not trusted
+
+/**
+ * Vertical plot band for a canvas of height `h`. Falls back to fixed proportions when
+ * the measured insets leave too little room (e.g. measured before styles applied),
+ * so top is always above bottom and the price axis can never flip.
+ */
+export function plotArea(h: number, insets: ChartInsets): { top: number; bottom: number } {
+  const top = insets.top;
+  const bottom = h - insets.bottom;
+  if (Number.isFinite(top) && Number.isFinite(bottom) && bottom - top >= Math.min(MIN_PLOT, h * 0.4)) {
+    return { top, bottom };
+  }
+  return { top: h * 0.22, bottom: h * 0.74 };
+}
+
 /** "Nice" grid step (1, 2, 2.5, 5 * 10^n) for roughly `count` lines. */
 export function niceStep(range: number, count: number): number {
   const raw = range / Math.max(1, count);
@@ -128,8 +144,7 @@ export class Chart {
     const wall = Date.now();
     const plotR = w - AXIS_W;
     const headX = plotR - HEAD_GAP;
-    const top = this.insets.top;
-    const bottom = h - this.insets.bottom;
+    const { top, bottom } = plotArea(h, this.insets);
     const span = this.windowSec * 1000;
     const pxPerMs = headX / span;
     const t0 = wall - span - 2000;
