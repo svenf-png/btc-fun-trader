@@ -93,10 +93,10 @@
           <button class="icon-btn" type="button" data-close="settings" aria-label="Schließen">✕</button>
         </div>
         <div class="sheet-body scroll">
-          <label class="toggle">
-            <span><b>Gebühr pro Trade</b><small>0,05 % vom Positionswert bei Ein- und Ausstieg</small></span>
-            <input type="checkbox" switch data-setting="fees" />
-          </label>
+          <div class="setting">
+            <span><b>Gebühr pro Trade</b><small>vom Positionswert, bei Ein- und Ausstieg</small></span>
+            <div id="feeLevels" class="seg" role="group" aria-label="Gebühr"></div>
+          </div>
           <label class="toggle">
             <span><b>Sound</b><small>Einstieg, Gewinn, Verlust, Liquidation</small></span>
             <input type="checkbox" switch data-setting="sound" />

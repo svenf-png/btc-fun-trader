@@ -4,6 +4,7 @@ import {
   applyTrade,
   compactEquity,
   initialState,
+  normalizeSettings,
   parseState,
   resetAccount,
   sideSummary,
@@ -82,6 +83,24 @@ describe('parseState', () => {
     const s = parseState(JSON.stringify(saved), 0);
     expect(s.balance).toBe(1234);
     expect(s.settings.stake).toBe(50);
-    expect(s.settings.fees).toBe(true);
+    expect(s.settings.feeRate).toBe(0.0005);
+  });
+});
+
+describe('normalizeSettings (fee levels)', () => {
+  it('migrates the old on/off switch', () => {
+    expect(normalizeSettings({ fees: false }).feeRate).toBe(0);
+    expect(normalizeSettings({ fees: true }).feeRate).toBe(0.0005);
+    expect('fees' in normalizeSettings({ fees: true })).toBe(false);
+  });
+  it('keeps a valid level and rejects anything else', () => {
+    expect(normalizeSettings({ feeRate: 0.0002 }).feeRate).toBe(0.0002);
+    expect(normalizeSettings({ feeRate: 0 }).feeRate).toBe(0);
+    expect(normalizeSettings({ feeRate: 0.5 }).feeRate).toBe(0.0005);
+    expect(normalizeSettings(null).feeRate).toBe(0.0005);
+  });
+  it('is applied when loading a saved game', () => {
+    const old = { ...initialState(0), settings: { stake: 50, fees: false } };
+    expect(parseState(JSON.stringify(old), 0).settings.feeRate).toBe(0);
   });
 });

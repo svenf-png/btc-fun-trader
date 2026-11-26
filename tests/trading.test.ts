@@ -121,3 +121,12 @@ describe('breakEvenPrice', () => {
     expect(livePnl(p, 60_786.92).net).toBeCloseTo(-4.65, 2);
   });
 });
+
+describe('fee levels', () => {
+  it('the break-even distance shrinks with the fee level', () => {
+    const taker = breakEvenPrice('long', 60_000, 0.0005) - 60_000;
+    const maker = breakEvenPrice('long', 60_000, 0.0002) - 60_000;
+    expect(maker).toBeCloseTo(24.0, 1);
+    expect(maker).toBeLessThan(taker / 2);
+  });
+});

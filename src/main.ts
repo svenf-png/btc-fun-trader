@@ -9,7 +9,7 @@ import { Gestures, lockPageGestures } from './touch';
 import { BUILD_ID, fetchRemoteBuild, isNewer, reloadToLatest } from './update';
 import {
   type ClosedTrade,
-  FEE_RATE,
+  FEE_LEVELS,
   LEVERAGES,
   type Position,
   STAKES,
@@ -40,7 +40,7 @@ let everLive = false;
 const ticks: Tick[] = [];
 
 const save = () => saveState(state);
-const feeRate = () => (state.settings.fees ? FEE_RATE : 0);
+const feeRate = () => state.settings.feeRate;
 
 // ---------- elements ----------
 const chart = new Chart($<HTMLCanvasElement>('chart'));
@@ -122,7 +122,7 @@ function renderControls(): void {
   const move = (100 / lev).toLocaleString('de-DE', { maximumFractionDigits: 1 });
   el.posInfo.textContent =
     s >= 1
-      ? `Position ${usdShort(s * lev)} · Liquidation bei ±${move} %${state.settings.fees ? ' · Gebühr 0,05 %' : ''}${capped ? ' · Einsatz begrenzt' : ''}`
+      ? `Position ${usdShort(s * lev)} · Liquidation bei ±${move} %${feeRate() > 0 ? ` · Gebühr ${feeLabel()}` : ' · ohne Gebühr'}${capped ? ' · Einsatz begrenzt' : ''}`
       : 'Kontostand zu niedrig: im Menü 📊 zurücksetzen';
   el.zoom.textContent = zoomLabel(state.settings.zoom);
 }
@@ -426,10 +426,15 @@ document.addEventListener('click', (e) => {
   if (t?.dataset.action === 'wipe') void doWipe();
 });
 
-type ToggleKey = 'fees' | 'sound' | 'haptics';
+type ToggleKey = 'sound' | 'haptics';
 function renderSettings(): void {
   for (const input of document.querySelectorAll<HTMLInputElement>('input[data-setting]')) {
     input.checked = state.settings[input.dataset.setting as ToggleKey];
+  }
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#feeLevels button')) {
+    const on = Number(b.dataset.fee) === state.settings.feeRate;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
   }
   $('hapticNote').textContent = hasVibration()
     ? 'Dieses Gerät unterstützt Vibration.'
@@ -445,6 +450,26 @@ for (const input of document.querySelectorAll<HTMLInputElement>('input[data-sett
       playSound('win');
     }
   });
+}
+
+const feeLabel = () => FEE_LEVELS.find((l) => l.rate === feeRate())?.label ?? '';
+for (const level of FEE_LEVELS) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.fee = String(level.rate);
+  const strong = document.createElement('b');
+  strong.textContent = level.label;
+  const hint = document.createElement('small');
+  hint.textContent = level.hint;
+  b.append(strong, hint);
+  b.addEventListener('click', () => {
+    if (pos) return; // never change the fee of an open position
+    state.settings.feeRate = level.rate;
+    save();
+    renderControls();
+    renderSettings();
+  });
+  $('feeLevels').append(b);
 }
 
 // unlock audio on the very first interaction anywhere
