@@ -89,6 +89,16 @@ export function openPosition(
   };
 }
 
+/**
+ * Exit price at which the trade ends at exactly zero after both fees.
+ * Long:  qty·(P−E) − qty·E·f − qty·P·f = 0  →  P = E·(1+f)/(1−f)
+ * Short: qty·(E−P) − qty·E·f − qty·P·f = 0  →  P = E·(1−f)/(1+f)
+ * Independent of stake and leverage; equals the entry when fees are off.
+ */
+export function breakEvenPrice(side: Side, entry: number, feeRate: number): number {
+  return side === 'long' ? (entry * (1 + feeRate)) / (1 - feeRate) : (entry * (1 - feeRate)) / (1 + feeRate);
+}
+
 /** Unrealised profit before fees, capped so the loss never exceeds the stake. */
 export function grossPnl(pos: Position, price: number): number {
   const raw = pos.side === 'long' ? pos.qty * (price - pos.entry) : pos.qty * (pos.entry - price);
