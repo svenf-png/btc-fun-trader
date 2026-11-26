@@ -14,6 +14,7 @@ import {
   type Position,
   STAKES,
   type Side,
+  breakEvenPrice,
   closePosition,
   effectiveStake,
   isLiquidated,
@@ -233,7 +234,13 @@ function updatePnl(): void {
   if (!pos) return;
   const { net, pct: p } = livePnl(pos, lastPrice);
   const win = net >= 0;
-  chart.position = { side: pos.side, entry: pos.entry, liq: pos.liqPrice, winning: win };
+  chart.position = {
+    side: pos.side,
+    entry: pos.entry,
+    liq: pos.liqPrice,
+    breakEven: pos.feeRate > 0 ? breakEvenPrice(pos.side, pos.entry, pos.feeRate) : undefined,
+    winning: win,
+  };
   const txt = usd(net, true);
   if (txt !== shownPnl) {
     shownPnl = txt;

@@ -11,6 +11,8 @@ export interface ChartPosition {
   side: Side;
   entry: number;
   liq: number;
+  /** Exit price that nets exactly zero after fees; omitted when fees are off. */
+  breakEven?: number;
   winning: boolean;
 }
 
@@ -31,6 +33,7 @@ const FALLBACK = {
   text: '#8f89b3',
   warn: '#ffb547',
   bg: '#0d0b1a',
+  strong: '#f4f1ff',
 } as const;
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -101,6 +104,7 @@ export class Chart {
       text: token('--muted', FALLBACK.text),
       warn: token('--warn', FALLBACK.warn),
       bg: token('--bg', FALLBACK.bg),
+      strong: token('--text', FALLBACK.strong),
     };
   }
 
@@ -161,9 +165,14 @@ export class Chart {
       if (tk.p > hi) hi = tk.p;
     }
     if (this.position) {
-      const { entry, liq } = this.position;
+      const { entry, liq, breakEven } = this.position;
       lo = Math.min(lo, entry);
       hi = Math.max(hi, entry);
+      // the break-even line is the target, so it is always kept in view
+      if (breakEven !== undefined) {
+        lo = Math.min(lo, breakEven);
+        hi = Math.max(hi, breakEven);
+      }
       // bring the liquidation line into view once the price gets close to it
       if (Math.abs(this.headP - liq) < (hi - lo) * 1.2) {
         lo = Math.min(lo, liq);
@@ -279,6 +288,10 @@ export class Chart {
     // entry and liquidation lines
     if (this.position) {
       const pos = this.position;
+      if (pos.breakEven !== undefined && pos.breakEven !== pos.entry) {
+        // label on the left so it never collides with the entry tag on the right
+        this.hLine(Y(pos.breakEven), plotR, c.strong, `± 0 $ · ${fmt(pos.breakEven)}`, [3, 4], 'left');
+      }
       this.hLine(Y(pos.entry), plotR, pos.side === 'long' ? c.up : c.down, `${pos.side === 'long' ? '▲' : '▼'} ${fmt(pos.entry)}`, [7, 5]);
       const ly = Y(pos.liq);
       if (ly > top - 40 && ly < bottom + 40) this.hLine(ly, plotR, c.warn, `⚠ ${fmt(pos.liq)}`, [2, 4]);
@@ -299,7 +312,14 @@ export class Chart {
     this.tag(hy, plotR, lineColor, fmt(last.p), true);
   }
 
-  private hLine(y: number, plotR: number, color: string, label: string, dash: number[]): void {
+  private hLine(
+    y: number,
+    plotR: number,
+    color: string,
+    label: string,
+    dash: number[],
+    side: 'left' | 'right' = 'right',
+  ): void {
     const { ctx } = this;
     ctx.save();
     ctx.setLineDash(dash);
@@ -310,14 +330,21 @@ export class Chart {
     ctx.lineTo(plotR, Math.round(y) + 0.5);
     ctx.stroke();
     ctx.restore();
-    this.tag(y, plotR, color, label, false);
+    this.tag(y, plotR, color, label, false, side);
   }
 
-  private tag(y: number, plotR: number, color: string, text: string, filled: boolean): void {
+  private tag(
+    y: number,
+    plotR: number,
+    color: string,
+    text: string,
+    filled: boolean,
+    side: 'left' | 'right' = 'right',
+  ): void {
     const { ctx } = this;
     ctx.font = '700 11px ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
     const tw = ctx.measureText(text).width + 10;
-    const x = filled ? plotR + 2 : plotR - tw - 4;
+    const x = filled ? plotR + 2 : side === 'left' ? 8 : plotR - tw - 4;
     ctx.fillStyle = filled ? color : withAlpha(this.colors.bg, 0.85);
     roundRect(ctx, x, y - 10, Math.max(tw, filled ? AXIS_W - 4 : 0), 20, 6);
     ctx.fill();

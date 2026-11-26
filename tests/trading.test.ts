@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FEE_RATE,
+  breakEvenPrice,
   closePosition,
   effectiveStake,
   isLiquidated,
@@ -95,5 +96,28 @@ describe('openPosition validation', () => {
   it('rejects zero price and zero stake', () => {
     expect(() => openPosition('long', 0, 10, 1, 0, 0)).toThrow();
     expect(() => openPosition('long', 1, 0, 1, 0, 0)).toThrow();
+  });
+});
+
+describe('breakEvenPrice', () => {
+  it('closing exactly there nets zero after both fees', () => {
+    for (const side of ['long', 'short'] as const) {
+      for (const lev of [1, 25, 100]) {
+        const p = openPosition(side, 60_771.33, 250, lev, FEE_RATE, 0);
+        const be = breakEvenPrice(side, p.entry, FEE_RATE);
+        expect(livePnl(p, be).net).toBeCloseTo(0, 6);
+      }
+    }
+  });
+  it('is about 0.1 % away with 0.05 % fees and equals entry without fees', () => {
+    expect(breakEvenPrice('long', 60_000, FEE_RATE)).toBeCloseTo(60_060.03, 2);
+    expect(breakEvenPrice('short', 60_000, FEE_RATE)).toBeCloseTo(59_940.03, 2);
+    expect(breakEvenPrice('long', 60_000, 0)).toBe(60_000);
+  });
+  it('matches the reported trade: 25x long needs ~61 $ just to break even', () => {
+    const be = breakEvenPrice('long', 60_771.33, FEE_RATE);
+    expect(be - 60_771.33).toBeCloseTo(60.8, 1);
+    const p = openPosition('long', 60_771.33, 250, 25, FEE_RATE, 0);
+    expect(livePnl(p, 60_786.92).net).toBeCloseTo(-4.65, 2);
   });
 });
