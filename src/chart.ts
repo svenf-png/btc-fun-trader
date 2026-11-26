@@ -22,8 +22,24 @@ export interface ChartInsets {
 const AXIS_W = 62; // right axis width in CSS px
 const HEAD_GAP = 26; // distance of the live point from the axis
 
-const css = (name: string): string =>
-  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+/** Fallbacks used whenever a CSS token cannot be read (e.g. styles not applied yet). */
+const FALLBACK = {
+  line: '#a78bfa',
+  up: '#2ee6a6',
+  down: '#ff5277',
+  grid: '#1d1a33',
+  text: '#8f89b3',
+  warn: '#ffb547',
+  bg: '#0d0b1a',
+} as const;
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** Reads a #rrggbb token from :root, falling back if it is missing or in another format. */
+export function token(name: string, fallback: string): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return HEX.test(v) ? v : fallback;
+}
 
 /** "Nice" grid step (1, 2, 2.5, 5 * 10^n) for roughly `count` lines. */
 export function niceStep(range: number, count: number): number {
@@ -43,7 +59,7 @@ export class Chart {
   private yMax = 0;
   private headP = 0;
   private lastFrame = 0;
-  private colors = { line: '', up: '', down: '', grid: '', text: '', warn: '', bg: '' };
+  private colors: Record<keyof typeof FALLBACK, string> = { ...FALLBACK };
 
   ticks: Tick[] = [];
   windowSec = 60; // currently drawn (animated)
@@ -52,33 +68,37 @@ export class Chart {
   insets: ChartInsets = { top: 140, bottom: 150 };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
-    const ctx = canvas.getContext('2d', { alpha: false });
+    // Default (alpha) context: an opaque canvas shows pure black whenever it is reset.
+    const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('canvas 2d not available');
     this.ctx = ctx;
     this.readColors();
-    new ResizeObserver(() => this.resize()).observe(canvas);
     this.resize();
   }
 
   readColors(): void {
     this.colors = {
-      line: css('--chart-line'),
-      up: css('--up'),
-      down: css('--down'),
-      grid: css('--grid'),
-      text: css('--muted'),
-      warn: css('--warn'),
-      bg: css('--bg'),
+      line: token('--chart-line', FALLBACK.line),
+      up: token('--up', FALLBACK.up),
+      down: token('--down', FALLBACK.down),
+      grid: token('--grid', FALLBACK.grid),
+      text: token('--muted', FALLBACK.text),
+      warn: token('--warn', FALLBACK.warn),
+      bg: token('--bg', FALLBACK.bg),
     };
   }
 
+  /** Matches the backing store to the CSS size; checked every frame (no observer needed). */
   private resize(): void {
-    const r = this.canvas.getBoundingClientRect();
-    this.dpr = Math.min(window.devicePixelRatio || 1, 3);
-    this.w = r.width;
-    this.h = r.height;
-    this.canvas.width = Math.round(r.width * this.dpr);
-    this.canvas.height = Math.round(r.height * this.dpr);
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    if (w === this.w && h === this.h && dpr === this.dpr && this.canvas.width > 0) return;
+    this.dpr = dpr;
+    this.w = w;
+    this.h = h;
+    this.canvas.width = Math.max(1, Math.round(w * dpr));
+    this.canvas.height = Math.max(1, Math.round(h * dpr));
   }
 
   /** Visible time window in seconds; animated unless `immediate`. */
@@ -90,6 +110,7 @@ export class Chart {
   render(now: number): void {
     const dt = this.lastFrame ? Math.min(0.1, (now - this.lastFrame) / 1000) : 0;
     this.lastFrame = now;
+    this.resize();
     const { ctx, w, h, dpr, colors: c } = this;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = c.bg;

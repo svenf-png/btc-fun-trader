@@ -1,4 +1,4 @@
-import { withAlpha } from './chart';
+import { token, withAlpha } from './chart';
 import { pct, usd } from './format';
 import { type EquityPoint, type GameState, START_CAPITAL, type Summary, sideSummary, summarize } from './store';
 
@@ -94,11 +94,10 @@ function drawEquity(canvas: HTMLCanvasElement, pts: EquityPoint[]): void {
   canvas.width = Math.round(r.width * dpr);
   canvas.height = Math.round(r.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const cs = getComputedStyle(document.documentElement);
-  const up = cs.getPropertyValue('--up').trim();
-  const down = cs.getPropertyValue('--down').trim();
-  const muted = cs.getPropertyValue('--muted').trim();
-  const grid = cs.getPropertyValue('--grid').trim();
+  const up = token('--up', '#2ee6a6');
+  const down = token('--down', '#ff5277');
+  const muted = token('--muted', '#8f89b3');
+  const grid = token('--grid', '#1d1a33');
   const W = r.width;
   const H = r.height;
   const padY = 14;
@@ -128,7 +127,7 @@ function drawEquity(canvas: HTMLCanvasElement, pts: EquityPoint[]): void {
   ctx.fillText(usd(START_CAPITAL), 6, Y(START_CAPITAL) - 5);
 
   // reset markers
-  ctx.strokeStyle = withAlpha(muted.startsWith('#') ? muted : '#888888', 0.5);
+  ctx.strokeStyle = withAlpha(muted, 0.5);
   pts.forEach((p, i) => {
     if (!p.r) return;
     ctx.beginPath();
