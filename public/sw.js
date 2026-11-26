@@ -24,9 +24,11 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.endsWith('/version.json')) return;
 
   // Pages: network first so updates arrive, cache as offline fallback.
+  // cache: 'no-cache' revalidates with the server; GitHub Pages sends max-age=600,
+  // which would otherwise serve a stale index.html for up to 10 minutes.
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req)
+      fetch(new Request(req, { cache: 'no-cache' }))
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put('./index.html', copy));
@@ -37,7 +39,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Hashed assets and icons: cache first.
+  // Hashed assets and icons: cache first (file names change with every build).
   e.respondWith(
     caches.match(req).then(
       (hit) =>

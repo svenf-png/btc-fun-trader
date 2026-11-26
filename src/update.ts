@@ -32,5 +32,12 @@ export async function reloadToLatest(): Promise<void> {
   } catch {
     /* reload anyway */
   }
+  // Warm the page through the network, bypassing the HTTP cache (max-age=600 on GitHub Pages),
+  // so the reload below cannot get a stale index.html even from an older service worker.
+  try {
+    await fetch(window.location.href.split('#')[0], { cache: 'reload' });
+  } catch {
+    /* offline: the reload falls back to the cached shell */
+  }
   window.location.reload();
 }
