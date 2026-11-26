@@ -36,6 +36,7 @@
             <i class="dot" aria-hidden="true"></i><span class="label">verbinde…</span>
           </span>
           <span class="spacer"></span>
+          <button id="updateBtn" class="chip update" type="button" hidden>⬆ Update</button>
           <button id="zoomBtn" class="chip" type="button" aria-label="Zeitfenster wechseln">1 min</button>
           <button id="statsBtn" class="icon-btn" type="button" aria-label="Statistik">📊</button>
           <button id="settingsBtn" class="icon-btn" type="button" aria-label="Einstellungen">⚙️</button>
@@ -105,11 +106,13 @@
             <input type="checkbox" switch data-setting="haptics" />
           </label>
           <button class="btn danger-soft" type="button" data-action="reset">↺ Konto auf 10.000 $ zurücksetzen</button>
+          <button id="checkUpdate" class="btn" type="button">⟳ Neue Version laden</button>
           <button class="btn ghost" type="button" data-action="wipe">Alle Daten löschen</button>
           <p class="fine">
             Nur Spielgeld. Kurse live von Coinbase Exchange (Fallback Kraken). Daten bleiben auf diesem Gerät
             (localStorage). Keine Anlageberatung.
           </p>
+          <p class="fine">Version <span id="buildId"></span></p>
         </div>
       </section>
 

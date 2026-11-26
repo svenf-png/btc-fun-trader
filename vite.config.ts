@@ -1,4 +1,26 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
+
+// Unique id per build: commit sha in GitHub Actions, otherwise a timestamp.
+const BUILD_ID = (process.env.GITHUB_SHA ?? '').slice(0, 7) || `local-${Date.now().toString(36)}`;
+
+/** Writes dist/version.json and stamps the build id into dist/sw.js (so the browser sees a new worker). */
+const versionPlugin = (): Plugin => {
+  let outDir = 'dist';
+  return {
+    name: 'version',
+    apply: 'build',
+    configResolved: (c) => {
+      outDir = resolve(c.root, c.build.outDir);
+    },
+    closeBundle: () => {
+      writeFileSync(resolve(outDir, 'version.json'), JSON.stringify({ build: BUILD_ID }));
+      const sw = resolve(outDir, 'sw.js');
+      writeFileSync(sw, readFileSync(sw, 'utf8').replaceAll('__BUILD_ID__', BUILD_ID));
+    },
+  };
+};
 
 // Strict Content Security Policy, only in the production build
 // (the dev server needs inline styles and its own HMR WebSocket).
@@ -26,5 +48,6 @@ const cspPlugin = (): Plugin => ({
 export default defineConfig({
   base: process.env.VITE_BASE ?? './',
   build: { target: 'es2022' },
-  plugins: [cspPlugin()],
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
+  plugins: [cspPlugin(), versionPlugin()],
 });

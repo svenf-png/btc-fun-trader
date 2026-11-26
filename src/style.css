@@ -223,6 +223,15 @@ input:focus-visible {
   place-items: center;
   cursor: pointer;
 }
+.chip.update {
+  color: #160f33;
+  background: var(--up);
+  border-color: var(--up);
+  animation: blink 0.9s infinite alternate;
+}
+.chip[hidden] {
+  display: none;
+}
 .chip {
   font-size: 13px;
   font-weight: 800;
